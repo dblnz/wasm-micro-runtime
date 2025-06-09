@@ -6,6 +6,7 @@
 #ifndef _BH_PLATFORM_H
 #define _BH_PLATFORM_H
 
+#include <stddef.h>
 #include "../platform/include/platform_common.h"
 #include "../platform/include/platform_api_vmcore.h"
 #include "../platform/include/platform_api_extension.h"
