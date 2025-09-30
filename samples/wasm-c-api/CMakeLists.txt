@@ -86,7 +86,6 @@ if (NOT MSVC)
   if (NOT (CMAKE_C_COMPILER MATCHES ".*clang.*" OR CMAKE_C_COMPILER_ID MATCHES ".*Clang"))
     set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gc-sections")
   endif ()
-  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wformat -Wformat-security")
   if (WAMR_BUILD_TARGET MATCHES "X86_.*" OR WAMR_BUILD_TARGET STREQUAL "AMD_64")
     if (NOT (CMAKE_C_COMPILER MATCHES ".*clang.*" OR CMAKE_C_COMPILER_ID MATCHES ".*Clang"))
       set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mindirect-branch-register")
@@ -129,7 +128,7 @@ if (${WAT2WASM_VERSION} VERSION_LESS 1.0.26)
   set(WAT2WASM_FLAGS "--enable-reference-types")
 endif ()
 
-if(${WAMR_BUILD_AOT} EQUAL 1)
+if(${WAMR_BUILD_AOT} EQUAL 1 AND ${WAMR_BUILD_INTERP} EQUAL 0)
   ## locate wamrc
   find_program(WAMRC
     wamrc
@@ -205,12 +204,3 @@ foreach(EX ${EXAMPLES})
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )
 endforeach()
-
-if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-  find_program(VALGRIND
-    valgrind
-    REQUIRED
-  )
-
-  # run `ctest -T memcheck -V --test-dir build`
-endif()

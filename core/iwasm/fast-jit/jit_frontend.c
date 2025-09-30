@@ -31,7 +31,7 @@ get_global_base_offset(const WASMModule *module)
         * (module->import_memory_count + module->memory_count);
 
 #if WASM_ENABLE_JIT != 0
-    /* If the module dosen't have memory, reserve one mem_info space
+    /* If the module doesn't have memory, reserve one mem_info space
        with empty content to align with llvm jit compiler */
     if (mem_inst_size == 0)
         mem_inst_size = (uint32)sizeof(WASMMemoryInstance);
@@ -1169,7 +1169,7 @@ init_func_translation(JitCompContext *cc)
     time_started = jit_cc_new_reg_I64(cc);
     /* Call os_time_thread_cputime_us() to get time_started firstly
        as there is stack frame switching below, calling native in them
-       may cause register spilling work inproperly */
+       may cause register spilling work improperly */
     if (!jit_emit_callnative(cc, os_time_thread_cputime_us, time_started, NULL,
                              0)) {
         return NULL;
@@ -1627,7 +1627,7 @@ jit_compile_func(JitCompContext *cc)
 
                 read_leb_uint32(frame_ip, frame_ip_end, type_idx);
 
-#if WASM_ENABLE_REF_TYPES != 0
+#if WASM_ENABLE_CALL_INDIRECT_OVERLONG != 0
                 read_leb_uint32(frame_ip, frame_ip_end, tbl_idx);
 #else
                 frame_ip++;
@@ -2336,6 +2336,8 @@ jit_compile_func(JitCompContext *cc)
                             return false;
                         break;
                     }
+#endif /* WASM_ENABLE_BULK_MEMORY */
+#if WASM_ENABLE_BULK_MEMORY_OPT != 0
                     case WASM_OP_MEMORY_COPY:
                     {
                         uint32 src_mem_idx, dst_mem_idx;
@@ -2353,7 +2355,7 @@ jit_compile_func(JitCompContext *cc)
                             return false;
                         break;
                     }
-#endif /* WASM_ENABLE_BULK_MEMORY */
+#endif /* WASM_ENABLE_BULK_MEMORY_OPT */
 #if WASM_ENABLE_REF_TYPES != 0
                     case WASM_OP_TABLE_INIT:
                     {

@@ -39,8 +39,11 @@ function help()
     echo "-F set the firmware path used by qemu"
     echo "-C enable code coverage collect"
     echo "-j set the platform to test"
-    echo "-T set sanitizer to use in tests(ubsan|tsan|asan)"
+    echo "-T set the sanitizer(s) used during testing. It can be either a comma-separated list 
+                                            (e.g., ubsan, asan) or a single option 
+                                            (e.g., ubsan, tsan, asan, posan)."
     echo "-A use the specified wamrc command instead of building it"
+    echo "-N enable extended const expression feature"
     echo "-r [requirement name] [N [N ...]] specify a requirement name followed by one or more"
     echo "                                  subrequirement IDs, if no subrequirement is specificed,"
     echo "                                  it will run all subrequirements. When this optin is used,"
@@ -59,6 +62,7 @@ ENABLE_MULTI_THREAD=0
 COLLECT_CODE_COVERAGE=0
 ENABLE_SIMD=0
 ENABLE_GC=0
+ENABLE_EXTENDED_CONST_EXPR=0
 ENABLE_MEMORY64=0
 ENABLE_MULTI_MEMORY=0
 ENABLE_XIP=0
@@ -87,7 +91,7 @@ REQUIREMENT_NAME=""
 # Initialize an empty array for subrequirement IDs
 SUBREQUIREMENT_IDS=()
 
-while getopts ":s:cabgvt:m:MCpSXexwWEPGQF:j:T:r:A:" opt
+while getopts ":s:cabgvt:m:MCpSXexwWEPGQF:j:T:r:A:N" opt
 do
     OPT_PARSED="TRUE"
     case $opt in
@@ -190,6 +194,10 @@ do
         G)
         echo "enable GC feature"
         ENABLE_GC=1
+        ;;
+        N)
+        echo "enable extended const expression feature"
+        ENABLE_EXTENDED_CONST_EXPR=1
         ;;
         P)
         PARALLELISM=1
@@ -361,39 +369,39 @@ function sightglass_test()
 
 function setup_wabt()
 {
-    WABT_VERSION=1.0.36
+    # please sync with .github/actions/install-wasi-sdk-wabt/action.yml
+    case ${PLATFORM} in
+        cosmopolitan)
+            ;;
+        linux)
+            WABT_URL=https://github.com/WebAssembly/wabt/releases/download/1.0.37/wabt-1.0.37-ubuntu-20.04.tar.gz
+            WABT_VERSION=1.0.37
+            ;;
+        darwin)
+            WABT_URL=https://github.com/WebAssembly/wabt/releases/download/1.0.36/wabt-1.0.36-macos-12.tar.gz
+            WABT_VERSION=1.0.36
+            ;;
+        windows)
+            WABT_URL=https://github.com/WebAssembly/wabt/releases/download/1.0.37/wabt-1.0.37-windows.tar.gz
+            WABT_VERSION=1.0.37
+            ;;
+        *)
+            echo "wabt platform for ${PLATFORM} in unknown"
+            exit 1
+            ;;
+    esac
+
     if [ ${WABT_BINARY_RELEASE} == "YES" ]; then
         echo "download a binary release and install"
         local WAT2WASM=${WORK_DIR}/wabt/out/gcc/Release/wat2wasm
         if [ ! -f ${WAT2WASM} ]; then
-            case ${PLATFORM} in
-                cosmopolitan)
-                    ;;
-                linux)
-                    WABT_PLATFORM=ubuntu-20.04
-                    ;;
-                darwin)
-                    WABT_PLATFORM=macos-12
-                    ;;
-                windows)
-                    WABT_PLATFORM=windows
-                    ;;
-                *)
-                    echo "wabt platform for ${PLATFORM} in unknown"
-                    exit 1
-                    ;;
-            esac
-            if [ ! -f /tmp/wabt-${WABT_VERSION}-${WABT_PLATFORM}.tar.gz ]; then
-                curl -L \
-                    https://github.com/WebAssembly/wabt/releases/download/${WABT_VERSION}/wabt-${WABT_VERSION}-${WABT_PLATFORM}.tar.gz \
-                    -o /tmp/wabt-${WABT_VERSION}-${WABT_PLATFORM}.tar.gz
-            fi
+            pushd /tmp
+            wget -O wabt-tar.gz --progress=dot:giga ${WABT_URL}
+            tar xf wabt-tar.gz
+            popd
 
-            cd /tmp \
-            && tar zxf wabt-${WABT_VERSION}-${WABT_PLATFORM}.tar.gz \
-            && mkdir -p ${WORK_DIR}/wabt/out/gcc/Release/ \
-            && install wabt-${WABT_VERSION}/bin/* ${WORK_DIR}/wabt/out/gcc/Release/ \
-            && cd -
+            mkdir -p ${WORK_DIR}/wabt/out/gcc/Release/
+            cp /tmp/wabt-${WABT_VERSION}/bin/* ${WORK_DIR}/wabt/out/gcc/Release/
         fi
     else
         echo "download source code and compile and install"
@@ -414,7 +422,7 @@ function setup_wabt()
 
 function compile_reference_interpreter()
 {
-    echo "compile the reference intepreter"
+    echo "compile the reference interpreter"
     pushd interpreter
     make
     if [ $? -ne 0 ]
@@ -448,9 +456,9 @@ function spec_test()
 
         # May 31, 2012 [interpreter] implement atomic.wait and atomic.notify (#194)
         git reset --hard 09f2831349bf409187abb6f7868482a8079f2264
-        git apply ../../spec-test-script/thread_proposal_ignore_cases.patch || exit 1
-        git apply ../../spec-test-script/thread_proposal_fix_atomic_case.patch || exit 1
-        git apply ../../spec-test-script/thread_proposal_remove_memory64_flag_case.patch
+        git apply --ignore-whitespace ../../spec-test-script/thread_proposal_ignore_cases.patch || exit 1
+        git apply --ignore-whitespace ../../spec-test-script/thread_proposal_fix_atomic_case.patch || exit 1
+        git apply --ignore-whitespace ../../spec-test-script/thread_proposal_remove_memory64_flag_case.patch
     elif [ ${ENABLE_EH} == 1 ]; then
         echo "checkout exception-handling test cases"
 
@@ -459,7 +467,7 @@ function spec_test()
 
         # Jun 6, 2023 Merge branch 'upstream' into merge-upstream
         git reset --hard 51c721661b671bb7dc4b3a3acb9e079b49778d36
-        git apply ../../spec-test-script/exception_handling.patch || exit 1
+        git apply --ignore-whitespace ../../spec-test-script/exception_handling.patch || exit 1
     elif [[ ${ENABLE_GC} == 1 ]]; then
         echo "checkout spec for GC proposal"
 
@@ -469,22 +477,33 @@ function spec_test()
 
         #  Dec 9, 2024. Merge branch 'funcref'
         git reset --hard 756060f5816c7e2159f4817fbdee76cf52f9c923
-        git apply ../../spec-test-script/gc_ignore_cases.patch || exit 1
+        git apply --ignore-whitespace ../../spec-test-script/gc_ignore_cases.patch || exit 1
 
         if [[ ${ENABLE_QEMU} == 1 ]]; then
             # Decrease the recursive count for tail call cases as nuttx qemu's
             # native stack size is much smaller
-            git apply ../../spec-test-script/gc_nuttx_tail_call.patch || exit 1
+            git apply --ignore-whitespace ../../spec-test-script/gc_nuttx_tail_call.patch || exit 1
         fi
 
         # As of version 1.0.36, wabt is still unable to correctly handle the GC proposal.
-        # 
+        #
         # $ $ /opt/wabt-1.0.36/bin/wast2json --enable-all ../spec/test/core/br_if.wast
-        # 
+        #
         # ../spec/test/core/br_if.wast:670:26: error: unexpected token "null", expected a numeric index or a name (e.g. 12 or $foo).
         #     (func $f (param (ref null $t)) (result funcref) (local.get 0))
         #
         compile_reference_interpreter
+    elif [[ ${ENABLE_EXTENDED_CONST_EXPR} == 1 ]]; then
+        echo "checkout spec for extended const expression proposal"
+
+        git clone -b main --single-branch https://github.com/WebAssembly/extended-const.git spec
+        pushd spec
+
+        # Jan 14, 2025. README.md: Add note that this proposal is done (#20)
+        git reset --hard 8d4f6aa2b00a8e7c0174410028625c6a176db8a1
+        # ignore import table cases
+        git apply --ignore-whitespace ../../spec-test-script/extended_const.patch || exit 1
+        
     elif [[ ${ENABLE_MEMORY64} == 1 ]]; then
         echo "checkout spec for memory64 proposal"
 
@@ -497,7 +516,7 @@ function spec_test()
         git checkout 044d0d2e77bdcbe891f7e0b9dd2ac01d56435f0b -- test/core/elem.wast test/core/data.wast
         # Patch table64 extension
         git checkout 940398cd4823522a9b36bec4984be4b153dedb81 -- test/core/call_indirect.wast test/core/table.wast test/core/table_copy.wast test/core/table_copy_mixed.wast test/core/table_fill.wast test/core/table_get.wast test/core/table_grow.wast test/core/table_init.wast test/core/table_set.wast test/core/table_size.wast
-        git apply ../../spec-test-script/memory64_ignore_cases.patch || exit 1
+        git apply --ignore-whitespace ../../spec-test-script/memory64_ignore_cases.patch || exit 1
     elif [[ ${ENABLE_MULTI_MEMORY} == 1 ]]; then
         echo "checkout spec for multi memory proposal"
 
@@ -508,9 +527,9 @@ function spec_test()
         # Reset to commit: "Merge pull request #48 from backes/specify-memcpy-immediate-order"
         git reset --hard fbc99efd7a788db300aec3dd62a14577ec404f1b
         git checkout 044d0d2e77bdcbe891f7e0b9dd2ac01d56435f0b -- test/core/elem.wast
-        git apply ../../spec-test-script/multi_memory_ignore_cases.patch || exit 1
+        git apply --ignore-whitespace ../../spec-test-script/multi_memory_ignore_cases.patch || exit 1
         if [[ ${RUNNING_MODE} == "aot" ]]; then
-            git apply ../../spec-test-script/multi_module_aot_ignore_cases.patch || exit 1
+            git apply --ignore-whitespace ../../spec-test-script/multi_module_aot_ignore_cases.patch || exit 1
         fi
     else
         echo "checkout spec for default proposal"
@@ -520,15 +539,15 @@ function spec_test()
 
         # Dec 20, 2024. Use WPT version of test harness for HTML core test conversion (#1859)
         git reset --hard f3a0e06235d2d84bb0f3b5014da4370613886965
-        git apply ../../spec-test-script/ignore_cases.patch || exit 1
+        git apply --ignore-whitespace ../../spec-test-script/ignore_cases.patch || exit 1
         if [[ ${ENABLE_SIMD} == 1 ]]; then
-            git apply ../../spec-test-script/simd_ignore_cases.patch || exit 1
+            git apply --ignore-whitespace ../../spec-test-script/simd_ignore_cases.patch || exit 1
         fi
         if [[ ${ENABLE_MULTI_MODULE} == 1 ]]; then
-            git apply ../../spec-test-script/multi_module_ignore_cases.patch || exit 1
+            git apply --ignore-whitespace ../../spec-test-script/multi_module_ignore_cases.patch || exit 1
 
             if [[ ${RUNNING_MODE} == "aot" ]]; then
-                git apply ../../spec-test-script/multi_module_aot_ignore_cases.patch || exit 1
+                git apply --ignore-whitespace ../../spec-test-script/multi_module_aot_ignore_cases.patch || exit 1
             fi
         fi
     fi
@@ -536,6 +555,9 @@ function spec_test()
     popd
     echo $(pwd)
 
+    #TODO: remove it when we can assume wabt is installed
+    # especially for CI Or there is installation script in the project
+    # that we can rely on
     setup_wabt
 
     ln -sf ${WORK_DIR}/../spec-test-script/all.py .
@@ -584,6 +606,10 @@ function spec_test()
         ARGS_FOR_SPEC_TEST+="--gc "
     fi
 
+    if [[ ${ENABLE_EXTENDED_CONST_EXPR} == 1 ]]; then
+        ARGS_FOR_SPEC_TEST+="--enable-extended-const "
+    fi
+
     if [[ 1 == ${ENABLE_MEMORY64} ]]; then
         ARGS_FOR_SPEC_TEST+="--memory64 "
     fi
@@ -622,8 +648,8 @@ function spec_test()
 function wamr_compiler_test()
 {
     if [[ $1 != "aot" ]]; then
-        echo "WAMR compiler tests only support AOT mode"
-        exit 1
+        echo "WAMR compiler tests only support AOT mode, skip $1"
+        return 0
     fi
 
     echo  "Now start WAMR compiler tests"
@@ -829,6 +855,7 @@ function build_wamrc()
         && cmake .. \
              -DCOLLECT_CODE_COVERAGE=${COLLECT_CODE_COVERAGE} \
              -DWAMR_BUILD_SHRUNK_MEMORY=0 \
+             -DWAMR_BUILD_EXTENDED_CONST_EXPR=${ENABLE_EXTENDED_CONST_EXPR} \
         && make -j 4
 }
 
@@ -877,51 +904,12 @@ function do_execute_in_running_mode()
 {
     local RUNNING_MODE="$1"
 
-    if [[ ${ENABLE_MULTI_MEMORY} -eq 1 ]]; then
-        if [[ "${RUNNING_MODE}" != "classic-interp" \
-                && "${RUNNING_MODE}" != "aot" ]]; then
-            echo "support multi-memory in classic-interp mode and aot mode"
-            return 0
-        fi
-    fi
+    # filter out uncompatible running mode based on targeting proposal features
+    # keep alpha order
 
-    if [[ ${ENABLE_MEMORY64} -eq 1 ]]; then
-        if [[ "${RUNNING_MODE}" != "classic-interp" \
-                && "${RUNNING_MODE}" != "aot" ]]; then
-            echo "support memory64(wasm64) in classic-interp mode and aot mode"
-            return 0
-        fi
-    fi
-
-    if [[ ${ENABLE_MULTI_MODULE} -eq 1 ]]; then
-        if [[ "${RUNNING_MODE}" != "classic-interp" \
-                && "${RUNNING_MODE}" != "fast-interp" \
-                && "${RUNNING_MODE}" != "aot" ]]; then
-            echo "support multi-module in both interp modes"
-            return 0
-        fi
-    fi
-
-    if [[ ${SGX_OPT} == "--sgx" ]]; then
-        if [[ "${RUNNING_MODE}" != "classic-interp" \
-                && "${RUNNING_MODE}" != "fast-interp" \
-                && "${RUNNING_MODE}" != "aot" \
-                && "${RUNNING_MODE}" != "fast-jit" ]]; then
-            echo "support sgx in both interp modes, fast-jit mode and aot mode"
-            return 0
-        fi
-    fi
-
-    if [[ ${ENABLE_SIMD} -eq 1 ]]; then
-        if [[ "${RUNNING_MODE}" != "jit" && "${RUNNING_MODE}" != "aot" ]]; then
-            echo "support simd in llvm-jit mode and aot mode"
-            return 0;
-        fi
-    fi
-
-    if [[ ${TARGET} == "X86_32" ]]; then
-        if [[ "${RUNNING_MODE}" == "jit" || "${RUNNING_MODE}" == "fast-jit" ]]; then
-            echo "both llvm-jit mode and fast-jit mode do not support X86_32 target"
+    if [[ ${ENABLE_EH} -eq 1 ]]; then
+        if [[ "${RUNNING_MODE}" != "classic-interp" ]]; then
+            echo "support exception handling in classic-interp"
             return 0;
         fi
     fi
@@ -936,9 +924,67 @@ function do_execute_in_running_mode()
         fi
     fi
 
-    if [[ ${ENABLE_EH} -eq 1 ]]; then
+    if [[ ${ENABLE_MEMORY64} -eq 1 ]]; then
+        if [[ "${RUNNING_MODE}" != "classic-interp" \
+                && "${RUNNING_MODE}" != "aot" ]]; then
+            echo "support memory64(wasm64) in classic-interp mode and aot mode"
+            return 0
+        fi
+    fi
+
+    if [[ ${ENABLE_MULTI_MEMORY} -eq 1 ]]; then
         if [[ "${RUNNING_MODE}" != "classic-interp" ]]; then
-            echo "support exception handling in classic-interp"
+            echo "support multi-memory in classic-interp mode mode"
+            return 0
+        fi
+    fi
+
+    if [[ ${ENABLE_MULTI_MODULE} -eq 1 ]]; then
+        if [[ "${RUNNING_MODE}" != "classic-interp" \
+                && "${RUNNING_MODE}" != "fast-interp" \
+                && "${RUNNING_MODE}" != "aot" ]]; then
+            echo "support multi-module in both interp modes"
+            return 0
+        fi
+    fi
+
+    if [[ ${ENABLE_SIMD} -eq 1 ]]; then
+        if [[ "${RUNNING_MODE}" != "jit" && "${RUNNING_MODE}" != "aot" && "${RUNNING_MODE}" != "fast-interp" ]]; then
+            echo "support simd in llvm-jit, aot and fast-interp mode"
+            return 0;
+        fi
+    fi
+
+    # filter out uncompatible running mode based on SGX support
+    if [[ ${SGX_OPT} == "--sgx" ]]; then
+        if [[ "${RUNNING_MODE}" != "classic-interp" \
+                && "${RUNNING_MODE}" != "fast-interp" \
+                && "${RUNNING_MODE}" != "aot" \
+                && "${RUNNING_MODE}" != "fast-jit" ]]; then
+            echo "support sgx in both interp modes, fast-jit mode and aot mode"
+            return 0
+        fi
+    fi
+
+    # filter out uncompatible running mode based on architecture
+    if [[ ${TARGET} == "X86_32" ]]; then
+        if [[ "${RUNNING_MODE}" == "jit" || "${RUNNING_MODE}" == "fast-jit" || "${RUNNING_MODE}" == "multi-tier-jit" ]]; then
+            echo "both llvm-jit, fast-jit and multi-tier-jit mode do not support X86_32 target"
+            return 0;
+        fi
+
+        if [[ ${ENABLE_MEMORY64} -eq 1 ]]; then
+            echo "memory64 does not support X86_32 target"
+            return 0;
+        fi
+
+        if [[ ${ENABLE_MULTI_MEMORY} -eq 1 ]]; then
+            echo "multi-memory does not support X86_32 target"
+            return 0;
+        fi
+
+        if [[ ${ENABLE_SIMD} -eq 1 ]]; then
+            echo "simd does not support X86_32 target"
             return 0;
         fi
     fi
@@ -1001,6 +1047,10 @@ function trigger()
         EXTRA_COMPILE_FLAGS+=" -DWAMR_BUILD_TAIL_CALL=1"
     fi
 
+    if [[ ${ENABLE_EXTENDED_CONST_EXPR} == 1 ]]; then
+        EXTRA_COMPILE_FLAGS+=" -DWAMR_BUILD_EXTENDED_CONST_EXPR=1"
+    fi
+
     if [[ ${ENABLE_DEBUG_VERSION} == 1 ]]; then
         EXTRA_COMPILE_FLAGS+=" -DCMAKE_BUILD_TYPE=Debug"
     fi
@@ -1018,21 +1068,9 @@ function trigger()
         EXTRA_COMPILE_FLAGS+=" -DWAMR_BUILD_TAIL_CALL=1"
     fi
 
-    echo "SANITIZER IS" $WAMR_BUILD_SANITIZER
-
-    if [[ "$WAMR_BUILD_SANITIZER" == "ubsan" ]]; then
-        echo "Setting run with ubsan"
-        EXTRA_COMPILE_FLAGS+=" -DWAMR_BUILD_SANITIZER=ubsan"
-    fi
-
-    if [[ "$WAMR_BUILD_SANITIZER" == "asan" ]]; then
-        echo "Setting run with asan"
-        EXTRA_COMPILE_FLAGS+=" -DWAMR_BUILD_SANITIZER=asan"
-    fi
-
-    if [[ "$WAMR_BUILD_SANITIZER" == "tsan" ]]; then
-        echo "Setting run with tsan"
-        EXTRA_COMPILE_FLAGS+=" -DWAMR_BUILD_SANITIZER=tsan"
+    if [[ -n "$WAMR_BUILD_SANITIZER" ]]; then
+        echo "Setting run with sanitizer(s): $WAMR_BUILD_SANITIZER"
+        EXTRA_COMPILE_FLAGS+=" -DWAMR_BUILD_SANITIZER=$WAMR_BUILD_SANITIZER"
     fi
 
     # Make sure we're using the builtin WASI libc implementation

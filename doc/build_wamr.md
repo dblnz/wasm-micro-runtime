@@ -57,7 +57,7 @@ cmake -DWAMR_BUILD_PLATFORM=linux -DWAMR_BUILD_TARGET=ARM
 
 - **WAMR_BUILD_LIBC_UVWASI**=1/0 (Experiment), build the [WASI](https://github.com/WebAssembly/WASI) libc subset for WASM app based on [uvwasi](https://github.com/nodejs/uvwasi) implementation, default to disable if not set
 
-> Note: for platform which doesn't support **WAMR_BUILD_LIBC_WASI**, e.g. Windows, developer can try using **WAMR_BUILD_LIBC_UVWASI**.
+> Note: WAMR doesn't support a safe sandbox on all platforms. For platforms that do not support **WAMR_BUILD_LIBC_WASI**, e.g. Windows, developers can try using an unsafe uvwasi-based WASI implementation by using **WAMR_BUILD_LIBC_UVWASI**.
 
 ### **Enable Multi-Module feature**
 
@@ -102,6 +102,7 @@ cmake -DWAMR_BUILD_PLATFORM=linux -DWAMR_BUILD_TARGET=ARM
 
 ### **Enable lib wasi-nn**
 - **WAMR_BUILD_WASI_NN**=1/0, default to disable if not set
+> Note: WAMR_BUILD_WASI_NN without WAMR_BUILD_WASI_EPHEMERAL_NN is deprecated and will likely be removed in future versions of WAMR. Please consider to enable WAMR_BUILD_WASI_EPHEMERAL_NN as well.
 > Note: See [WASI-NN](../core/iwasm/libraries/wasi-nn) for more details.
 
 ### **Enable lib wasi-nn GPU mode**
@@ -113,7 +114,7 @@ cmake -DWAMR_BUILD_PLATFORM=linux -DWAMR_BUILD_TARGET=ARM
 - **WAMR_BUILD_WASI_NN_EXTERNAL_DELEGATE_PATH**=Path to the external delegate shared library (e.g. `libedgetpu.so.1.0` for Coral USB)
 
 ### **Enable lib wasi-nn with `wasi_ephemeral_nn` module support**
-- **WAMR_BUILD_WASI_EPHEMERAL_NN**=1/0, default to disable if not set
+- **WAMR_BUILD_WASI_EPHEMERAL_NN**=1/0, default to enable if not set
 
 ### **Disable boundary check with hardware trap**
 - **WAMR_DISABLE_HW_BOUND_CHECK**=1/0, default to enable if not set and supported by platform
@@ -132,7 +133,11 @@ cmake -DWAMR_BUILD_PLATFORM=linux -DWAMR_BUILD_TARGET=ARM
 
 ### **Enable 128-bit SIMD feature**
 - **WAMR_BUILD_SIMD**=1/0, default to enable if not set
-> Note: only supported in AOT mode x86-64 target.
+> Note: supported in AOT mode, JIT mode, and fast-interpreter mode with SIMDe library.
+
+### **Enable SIMDe library for SIMD in fast interpreter**
+- **WAMR_BUILD_LIB_SIMDE**=1/0, default to disable if not set
+> Note: If enabled, SIMDe (SIMD Everywhere) library will be used to implement SIMD operations in fast interpreter mode.
 
 ### **Enable Exception Handling**
 - **WAMR_BUILD_EXCE_HANDLING**=1/0, default to disable if not set
@@ -141,6 +146,9 @@ cmake -DWAMR_BUILD_PLATFORM=linux -DWAMR_BUILD_TARGET=ARM
 
 ### **Enable Garbage Collection**
 - **WAMR_BUILD_GC**=1/0, default to disable if not set
+
+### **Set the Garbage Collection heap size**
+- **WAMR_BUILD_GC_HEAP_SIZE_DEFAULT**=n, default to 128 kB (131072) if not set
 
 ### **Configure Debug**
 
@@ -285,6 +293,22 @@ Currently we only profile the memory consumption of module, module_instance and 
 - **WAMR_BUILD_AOT_INTRINSICS**=1/0, enable the AOT intrinsic functions, default to enable if not set. These functions can be called from the AOT code when `--disable-llvm-intrinsics` flag or `--enable-builtin-intrinsics=<intr1,intr2,...>` flag is used by wamrc to generate the AOT file.
 > Note: See [Tuning the XIP intrinsic functions](./xip.md#tuning-the-xip-intrinsic-functions) for more details.
 
+### **Enable extended constant expression**
+- **WAMR_BUILD_EXTENDED_CONST_EXPR**=1/0, default to disable if not set.
+> Note: See [Extended Constant Expressions](https://github.com/WebAssembly/extended-const/blob/main/proposals/extended-const/Overview.md) for more details.
+
+### **Enable bulk-memory-opt**
+- **WAMR_BUILD_BULK_MEMORY_OPT**=1/0, default to disable if not set.
+> Note: See [bulk-memory-opt](https://github.com/WebAssembly/tool-conventions/blob/main/Lime.md#bulk-memory-opt) for more details.
+
+### **Enable call-indirect-overlong**
+- **WAMR_BUILD_CALL_INDIRECT_OVERLONG**=1/0, default to disable if not set.
+> Note: See [call-indirect-overlong](https://github.com/WebAssembly/tool-conventions/blob/main/Lime.md#call-indirect-overlong) for more details.
+
+### **Enable Lime1 target**
+- **WAMR_BUILD_LIME1**=1/0, default to disable if not set.
+> Note: See [Lime1](https://github.com/WebAssembly/tool-conventions/blob/main/Lime.md#lime1) for more details.
+
 ### **Configurable memory access boundary check**
 - **WAMR_CONFIGURABLE_BOUNDS_CHECKS**=1/0, default to disable if not set
 > Note: If it is enabled, allow to run `iwasm --disable-bounds-checks` to disable the memory access boundary checks for interpreter mode.
@@ -320,16 +344,44 @@ And the wasm app can calls below APIs to allocate/free memory from/to the shared
 - **WAMR_BUILD_SHRUNK_MEMORY**=1/0, default to enable if not set
 > Note: When enabled, this feature will reduce memory usage by decreasing the size of the linear memory, particularly when the `memory.grow` opcode is not used and memory usage is somewhat predictable.
 
+## **Instruction metering**
+- **WAMR_BUILD_INSTRUCTION_METERING**=1/0, default to disable if not set
+> Note: Enabling this feature allows limiting the number of instructions a wasm module instance can execute. Use the `wasm_runtime_set_instruction_count_limit(...)` API before calling `wasm_runtime_call_*(...)` APIs to enforce this limit.
+
 ## **Combination of configurations:**
 
 We can combine the configurations. For example, if we want to disable interpreter, enable AOT and WASI, we can run command:
 
 ``` Bash
-cmake .. -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_LIBC_WASI=0 -DWAMR_BUILD_PLATFORM=linux
+cmake .. -DWAMR_BUILD_INTERP=0 -DWAMR_BUILD_AOT=1 -DWAMR_BUILD_LIBC_WASI=1 -DWAMR_BUILD_PLATFORM=linux
 ```
 
 Or if we want to enable interpreter, disable AOT and WASI, and build as X86_32, we can run command:
 
 ``` Bash
 cmake .. -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_AOT=0 -DWAMR_BUILD_LIBC_WASI=0 -DWAMR_BUILD_TARGET=X86_32
+```
+
+When enabling SIMD for fast interpreter mode, you'll need to enable both SIMD and the SIMDe library:
+
+``` Bash
+
+cmake .. -DWAMR_BUILD_INTERP=1 -DWAMR_BUILD_FAST_INTERP=1 -DWAMR_BUILD_SIMD=1 -DWAMR_BUILD_LIB_SIMDE=1
+```
+
+For Valgrind, begin with the following configurations and add additional ones as needed:
+
+``` Bash
+  #...
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DWAMR_DISABLE_HW_BOUND_CHECK=0 \
+  -DWAMR_DISABLE_WRITE_GS_BASE=0
+  #...
+```
+
+To enable the minimal Lime1 feature set, we need to disable some features that are on by default, such as 
+bulk memory and reference types:
+
+```Bash
+cmake .. -DWAMR_BUILD_LIME1=1 -DWAMR_BUILD_BULK_MEMORY=0 -DWAMR_BUILD_REF_TYPES=0 -DDWAMR_BUILD_SIMD=0
 ```

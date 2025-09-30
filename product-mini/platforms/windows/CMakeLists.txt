@@ -1,7 +1,7 @@
 # Copyright (C) 2019 Intel Corporation.  All rights reserved.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-cmake_minimum_required (VERSION 2.9)
+cmake_minimum_required (VERSION 3.14)
 
 project (iwasm C ASM CXX)
 # set (CMAKE_VERBOSE_MAKEFILE 1)
@@ -14,7 +14,7 @@ set (WAMR_BUILD_PLATFORM "windows")
 set (CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
 set (CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS "")
 
-add_definitions(-DCOMPILING_WASM_RUNTIME_API=1)
+set(CMAKE_CXX_STANDARD 17)
 
 # Set WAMR_BUILD_TARGET, currently values supported:
 # "X86_64", "AMD_64", "X86_32", "AARCH64[sub]", "ARM[sub]", "THUMB[sub]", "MIPS", "XTENSA"
@@ -114,9 +114,6 @@ if (NOT MINGW)
   set (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /SAFESEH:NO")
 endif ()
 
-# set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wformat -Wformat-security")
-# set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wconversion -Wsign-conversion")
-
 if (WAMR_BUILD_TARGET MATCHES "X86_.*" OR WAMR_BUILD_TARGET STREQUAL "AMD_64")
   if (NOT (CMAKE_C_COMPILER MATCHES ".*clang.*" OR CMAKE_C_COMPILER_ID MATCHES ".*Clang" OR MSVC))
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mindirect-branch-register")
@@ -145,7 +142,7 @@ add_library (vmlib ${WAMR_RUNTIME_LIB_SOURCE})
 set_version_info (vmlib)
 
 target_include_directories(vmlib INTERFACE
-  $<INSTALL_INTERFACE:include/iwasm>
+  $<INSTALL_INTERFACE:include>
 )
 
 set (WAMR_PUBLIC_HEADERS
@@ -172,7 +169,7 @@ endif()
 install (TARGETS vmlib
   EXPORT iwasmTargets
   DESTINATION lib
-  PUBLIC_HEADER DESTINATION include/iwasm
+  PUBLIC_HEADER DESTINATION include
 )
 
 install_iwasm_package ()
